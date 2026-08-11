@@ -119,12 +119,12 @@ foreach ($sub in $subs) {
                 -o json 2>$null | ConvertFrom-Json
         } catch { }
 
-        # Private endpoints (read-only list)
+        # Private endpoints (read-only list; sanitize tsv output)
         $peCount = 0
         try {
-            $peCount = az network private-endpoint-connection list --id $res.id `
-                --query "length(@)" -o tsv 2>$null
-            if (-not $peCount) { $peCount = 0 }
+            $peRaw = (az network private-endpoint-connection list --id $res.id `
+                --query "length(@)" -o tsv 2>$null) | Select-Object -Last 1
+            if ($peRaw -match '^\d+$') { $peCount = [int]$peRaw }
         } catch { $peCount = 0 }
 
         # Tag analysis
@@ -142,7 +142,16 @@ foreach ($sub in $subs) {
         }
 
         $netIsolation = "No"
-        if ($detail.pubAccess -eq "Disabled" -and [int]$peCount -gt 0) { $netIsolation = "Yes" }
+        if ($detail.pubAccess -eq "Disabled" -and $peCount -gt 0) { $netIsolation = "Yes" }
+
+        # Pre-compute values outside hashtable to avoid subexpression errors
+        $kindVal    = if ($res.kind) { $res.kind } else { "N/A" }
+        $skuVal     = if ($detail.sku) { $detail.sku } else { "N/A" }
+        $provVal    = if ($detail.provState) { $detail.provState } else { "N/A" }
+        $pubVal     = if ($detail.pubAccess) { $detail.pubAccess } else { "N/A" }
+        $idVal      = if ($detail.identity) { $detail.identity } else { "None" }
+        $epVal      = if ($detail.endpoint) { $detail.endpoint } else { "N/A" }
+        $missingStr = $missingTags -join ", "
 
         [void]$masterInventory.Add([PSCustomObject]@{
             SubscriptionId      = $subId
@@ -150,24 +159,27 @@ foreach ($sub in $subs) {
             ResourceGroup       = $res.resourceGroup
             ResourceName        = $res.name
             ResourceType        = $res.type
-            Kind                = $(if ($res.kind) { $res.kind } else { "N/A" })
-            SKU                 = $(if ($detail.sku) { $detail.sku } else { "N/A" })
+            Kind                = $kindVal
+            SKU                 = $skuVal
             Location            = $res.location
-            ProvisioningState   = $(if ($detail.provState) { $detail.provState } else { "N/A" })
-            PublicNetworkAccess = $(if ($detail.pubAccess) { $detail.pubAccess } else { "N/A" })
-            PrivateEndpoints    = [int]$peCount
-            ManagedIdentity     = $(if ($detail.identity) { $detail.identity } else { "None" })
-            Endpoint            = $(if ($detail.endpoint) { $detail.endpoint } else { "N/A" })
+            ProvisioningState   = $provVal
+            PublicNetworkAccess = $pubVal
+            PrivateEndpoints    = $peCount
+            ManagedIdentity     = $idVal
+            Endpoint            = $epVal
             Tags                = $tagStr
-            MissingTags         = $($missingTags -join ", ")
+            MissingTags         = $missingStr
         })
 
         [void]$networkAudit.Add([PSCustomObject]@{
-            SubscriptionId = $subId; ResourceGroup = $res.resourceGroup
-            ResourceName = $res.name; ResourceType = $res.type
-            Kind = $(if ($res.kind) { $res.kind } else { "N/A" })
-            PublicAccess = $(if ($detail.pubAccess) { $detail.pubAccess } else { "N/A" })
-            PrivateEndpoints = [int]$peCount; NetworkIsolation = $netIsolation
+            SubscriptionId   = $subId
+            ResourceGroup    = $res.resourceGroup
+            ResourceName     = $res.name
+            ResourceType     = $res.type
+            Kind             = $kindVal
+            PublicAccess     = $pubVal
+            PrivateEndpoints = $peCount
+            NetworkIsolation = $netIsolation
         })
 
         if ($missingTags.Count -gt 0) {
@@ -268,12 +280,12 @@ foreach ($sub in $subs) {
     foreach ($r in $aiRes) {
         $diagCount = 0
         try {
-            $diagCount = az monitor diagnostic-settings list --resource $r.id `
-                --query "length(value)" -o tsv 2>$null
-            if (-not $diagCount) { $diagCount = 0 }
+            $diagRaw = (az monitor diagnostic-settings list --resource $r.id `
+                --query "length(value)" -o tsv 2>$null) | Select-Object -Last 1
+            if ($diagRaw -match '^\d+$') { $diagCount = [int]$diagRaw }
         } catch { }
 
-        if ([int]$diagCount -eq 0) {
+        if ($diagCount -eq 0) {
             [void]$diagnosticGaps.Add([PSCustomObject]@{
                 SubscriptionId = $subId; ResourceName = $r.name
                 ResourceType = $r.type; Issue = "No diagnostic settings"
