@@ -173,7 +173,7 @@ $grade = switch ([int]$avgScore) {
 Write-Host "[INFO] Generating governance gap analysis..." -ForegroundColor Cyan
 
 $report = @"
-# ManpowerGroup — AI Governance Gap Analysis
+# Contoso — AI Governance Gap Analysis
 
 **Generated:** $(Get-Date -Format "yyyy-MM-dd HH:mm")
 **Source:** Inventory collected $(Split-Path $InputPath -Leaf)
